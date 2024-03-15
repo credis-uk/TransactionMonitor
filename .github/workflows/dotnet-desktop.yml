@@ -1,0 +1,63 @@
+name: .NET Core Desktop
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+
+    strategy:
+      matrix:
+        configuration: [Debug, Release]
+
+    runs-on: windows-latest
+
+    env:
+      Solution_Name: TransactionMonitor.sln
+      Test_Project_Path: UnitTests\UnitTests.csproj
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        submodules: 'recursive'
+
+    - name: Install Mosquitto
+      run: |
+        # Try installing Mosquitto 
+        Invoke-WebRequest -Uri "https://mosquitto.org/files/binary/win64/mosquitto-2.0.9a-install-windows-x64.exe" -OutFile "mosquitto-setup.exe"
+        Start-Process -FilePath "mosquitto-setup.exe" -ArgumentList "/S" -Wait
+        
+    # Install the .NET Core workload
+    - name: Install .NET Core
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    # Add MSBuild to the PATH
+    - name: Setup MSBuild.exe
+      uses: microsoft/setup-msbuild@v2
+
+    # Build TransactionMonitor and publish it as an artifact
+    - name: Build and publish TransactionMonitor
+      run: |
+        $msbuildPath = Get-Command MSBuild.exe | Select-Object -ExpandProperty Source
+        & "$msbuildPath" /t:restore
+        & "$msbuildPath" /t:build /p:Configuration=${{ matrix.configuration }}
+        mkdir TransactionMonitorArtifact
+        cp -r TransactionMonitor/bin/${{ matrix.configuration }}/* TransactionMonitorArtifact/
+      working-directory: ${{ github.workspace }}
+
+    # Start the Mosquitto service
+    - name: Start Mosquitto service
+      run: |
+        "C:\Program Files\mosquitto\mosquitto.exe -d"
+
+    # Execute all unit tests in the solution
+    - name: Execute unit tests
+      run: dotnet test
